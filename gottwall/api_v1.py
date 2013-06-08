@@ -14,22 +14,19 @@ API handler for v1
 import logging
 from datetime import datetime
 
-from dateutil.relativedelta import relativedelta
 import tornado.escape
+import tornado.web
+from dateutil.relativedelta import relativedelta
+from tornado import gen
+from tornado.escape import json_decode
 from tornado.web import authenticated
 
-from tornado.escape import json_decode
-import tornado.web
-import tornado.gen
-from tornado import gen
-
-from gottwall.utils import (timestamp_to_datetime, date_range,
-                            date_min, date_max)
 from gottwall.settings import DATE_FILTER_FORMAT, PERIODS, DEFAULT_EMBEDDED_PARAMS
+from gottwall.utils import timestamp_to_datetime, date_min, date_max
+from handlers import SERVER_NAME, BaseHandler, JSONMixin, APIHandler
+
 
 logger = logging.getLogger('gottwall.apiv1')
-
-from handlers import SERVER_NAME, BaseHandler, JSONMixin, APIHandler
 
 
 class TimeMixin(object):
@@ -84,7 +81,6 @@ class StatsHandlerV1(APIHandler, StatsMixin):
 
     @authenticated
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, project, *args, **kwargs):
 
         try:
@@ -97,20 +93,18 @@ class StatsHandlerV1(APIHandler, StatsMixin):
         from_date, to_date = self.clean_date_range(from_date, to_date, period)
 
         if self.validate_name(name, period) and from_date and to_date:
-
-            data = yield gen.Task(self.application.storage.query,
-                                  project, name, period, from_date, to_date, filter_name, filter_value)
-
-
-            self.json_response({"range": list(data['range']),
-                                "project": project,
-                                "period": period,
-                                "name": name,
-                                "filter_name": filter_name,
-                                "filter_value": filter_value,
-                                "avg": data['avg'],
-                                "min": data['min'],
-                                "max": data['max']})
+            self.application.storage.query(
+                project, name, period, from_date, to_date, filter_name, filter_value,
+                callback = lambda data: self.json_response({
+                    "range": list(data['range']),
+                    "project": project,
+                    "period": period,
+                    "name": name,
+                    "filter_name": filter_name,
+                    "filter_value": filter_value,
+                    "avg": data['avg'],
+                    "min": data['min'],
+                    "max": data['max']}))
 
 
 class StatsDataSetHandlerV1(APIHandler, StatsMixin):
@@ -126,7 +120,6 @@ class StatsDataSetHandlerV1(APIHandler, StatsMixin):
 
     @authenticated
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, project, *args, **kwargs):
 
         try:
@@ -145,14 +138,14 @@ class StatsDataSetHandlerV1(APIHandler, StatsMixin):
                self.validate_filter(filter_name) and \
                from_date and to_date:
 
-            data = yield gen.Task(self.application.storage.query_set,
-                                  project, name, period, from_date, to_date, filter_name)
-
-            self.json_response({"data": data,
-                                "project": project,
-                                "period": period,
-                                "name": name,
-                                "filter_name": filter_name})
+            self.application.storage.query_set(
+                project, name, period, from_date, to_date, filter_name,
+                lambda data: self.json_response({
+                    "data": data,
+                    "project": project,
+                    "period": period,
+                    "name": name,
+                    "filter_name": filter_name}))
 
 
 class MetricsHandlerV1(APIHandler):
@@ -160,10 +153,9 @@ class MetricsHandlerV1(APIHandler):
     """
     @authenticated
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, project, *args, **kwargs):
-        metrics = yield gen.Task(self.application.storage.metrics, project)
-        self.json_response(metrics)
+        self.application.storage.metrics(
+            project, lambda metrics: self.json_response(metrics))
 
 
 class EmbeddedCreateHandlerV1(APIHandler, TimeMixin):
@@ -189,7 +181,6 @@ class EmbeddedCreateHandlerV1(APIHandler, TimeMixin):
 
     @authenticated
     @tornado.web.asynchronous
-    @gen.engine
     def post(self, project, *args, **kwargs):
 
         try:
@@ -209,9 +200,10 @@ class EmbeddedCreateHandlerV1(APIHandler, TimeMixin):
         if not self.validate_renderer(renderer):
             return
 
-        embedded_hash = (yield gen.Task(
-            self.application.storage.make_embedded,
-                project, period, metrics, renderer, name))
+        self.application.storage.make_embedded(
+            project, period, metrics, renderer, name, self._hash_callback)
+
+    def _hash_callback(self, embedded_hash):
 
         if not embedded_hash:
             self.set_status(500)
@@ -241,6 +233,7 @@ class EmbeddedBaseHandlerV1(BaseHandler, TimeMixin, JSONMixin):
         return self.get_argument('renderer', meta_info.get('renderer',
                                                            EMBEDDED_PARAMS.get('renderer')) or\
                                  DEFAULT_EMBEDDED_PARAMS['renderer'])
+
 
     @gen.engine
     def get_data(self, uid, callback=None):
@@ -300,50 +293,50 @@ class HTMLEmbeddedHandlerV1(EmbeddedBaseHandlerV1):
         return height, width, interpolation
 
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, uid, *args, **kwargs):
-        response_data = (yield gen.Task(self.get_data, uid))
+        self.get_data(uid, self._get_data_callback)
+
+    def _get_data_callback(self, response_data):
         height, width, interpolation = self.get_chart_params()
 
         def x_converter(x): return x
 
         self.render("embedded.html",
                     data=response_data, width=width, height=height,
-                    interpolation=interpolation,
-                    x_converter=x_converter, uid=uid)
+                    interpolation=interpolation)
 
 
 class JSEmbeddedHandlerV1(HTMLEmbeddedHandlerV1):
+
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, uid, *args, **kwargs):
-        from_date, to_date = self.get_date_params()
 
-        meta_info = (yield gen.Task(self.application.storage.get_embedded, uid))
+        def _embedded_callback(meta_info):
+            from_date, to_date = self.get_date_params()
 
-        period = self.get_argument('period', meta_info['period'])
+            period = self.get_argument('period', meta_info['period'])
 
-        from_date, to_date = self.clean_date_range(from_date, to_date, period)
+            from_date, to_date = self.clean_date_range(from_date, to_date, period)
 
-        if not any([from_date, to_date]):
-            return
 
-        height, width, interpolation = self.get_chart_params()
+            if not any([from_date, to_date]):
+                return
 
-        self.render("js_embedded.html",
-                    width=width, height=height,
-                    from_date=from_date.strftime(DATE_FILTER_FORMAT),
-                    to_date=to_date.strftime(DATE_FILTER_FORMAT), period=period,
-                    interpolation=interpolation, uid=uid)
+            height, width, interpolation = self.get_chart_params()
+
+            self.render("js_embedded.html",
+                        width=width, height=height,
+                        from_date=from_date.strftime(DATE_FILTER_FORMAT),
+                        to_date=to_date.strftime(DATE_FILTER_FORMAT), period=period,
+                        interpolation=interpolation, uid=uid)
+
+        self.application.storage.get_embedded(uid, _embedded_callback)
+
+
 
 
 class JSONEmbeddedHandlerV1(EmbeddedBaseHandlerV1):
 
     @tornado.web.asynchronous
-    @gen.engine
     def get(self, uid, *args, **kwargs):
-
-        response_data = (yield gen.Task(
-            self.get_data, uid))
-
-        self.json_response(response_data)
+        self.get_data(uid, lambda response_data: self.json_response(response_data))

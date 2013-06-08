@@ -1,2 +1,3 @@
 stati-redis
 http://closure-linter.googlecode.com/files/closure_linter-latest.tar.gz
+pyprof2calltree==1.1.0

@@ -4,7 +4,7 @@
 {%- set filter_value = metric["filter_value"] -%}
 {"name": "{{ metric["name"]|e }}{% if filter_name and filter_value %} | {{ filter_name|e }}:{{ filter_value|e }}{% endif %}",
  "color": palette.color(),
- "data": [{% for item in metric["range"] -%}{"x": {{ x_converter(item[0]) }}, "y": {{ item[1]|e }}}{% if not loop.last %},{% endif %}{%- endfor %}]
+ "data": [{% for item in metric["range"] -%}{"x": {{ item[0] }}, "y": {{ item[1]|e }}}{% if not loop.last %},{% endif %}{%- endfor %}]
 }
 {%- endmacro -%}
 

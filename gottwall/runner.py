@@ -118,22 +118,13 @@ class Start(Command):
     parent = Aggregator
 
     options = [
-        Option("-p", "--port",
-               metavar=int,
-               default=8890,
+        Option("-p", "--port", metavar=int, default=8890,
                help="Port to run http server"),
-        Option("-r", "--reload",
-               action="store_true",
-               dest="reload",
-               default=False,
+        Option("-r", "--reload", action="store_true",dest="reload", default=False,
                help="Auto realod source on changes"),
-        Option("-h", "--host",
-               metavar="str",
-               default="127.0.0.1",
+        Option("-h", "--host", metavar="str", default="127.0.0.1",
                help="Port for server"),
-        Option("-l", "--logging",
-               metavar="str",
-               default="none",
+        Option("-l", "--logging", metavar="str", default="none",
                help="Log level")]
 
     def run(self, port, reload, host, logging, **kwargs):

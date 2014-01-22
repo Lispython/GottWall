@@ -31,3 +31,5 @@ docs/build/*
 nodeenv.py
 .vagrant
 distribute*
+virtualenv.py
+*.pyprof

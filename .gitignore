@@ -33,3 +33,7 @@ nodeenv.py
 distribute*
 virtualenv.py
 *.pyprof
+*.pyprof_out
+*.egg
+*.egg/
+.DS_Store
